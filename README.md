@@ -16,7 +16,7 @@ The first compilation strategy is to compile the `aksview.c` source file directl
 
 AKSView should be able to automatically detect whether it is being built on POSIX or Windows using the `aksmacro` header.  If for some reason it does not detect this correctly, you can manually define either `AKS_POSIX` or `AKS_WIN` while compiling to force the correct decision.
 
-If you want to enable support for 64-bit file offsets, specify `AKS_FILE64` while compiling.  On POSIX, this will require you to also define `_FILE_OFFSET_BITS=64` or else `aksmacro.h` will raise an error during compilation.  If you do not define `AKS_FILE64` while compiling, AKSView will not be able to reliably work with files near or beyond 2GB in size.
+On POSIX only, you must define `_FILE_OFFSET_BITS=64` or else you will get a compilation error indicating that this definition is required.
 
 On Windows, by default AKSView will be built in ANSI mode, which means that no translation macros are required, but you may not be able to access file paths that include Unicode characters.  If you define both `UNICODE` and `_UNICODE` then AKSView will be built in Unicode mode and automatically translate string parameters from UTF-8 to UTF-16 before passing them to Windows.  This allows for full support of Unicode file paths, but your application should then use the `aksmacro` translation macros consistently and also have a translated `maint` function so that Unicode parameters are correctly translated from UTF-16 into UTF-8.  (See `aksmacro` for further information.)
 
@@ -24,13 +24,11 @@ On Windows, by default AKSView will be built in ANSI mode, which means that no t
 
 The second compilation strategy is compile AKSView as a static library that can then be included just like any other static library.
 
-When compiling the object file for `aksview.c`, you will need to make sure that both `aksview.h` and `aksmacro.h` are in the include path.  As with the previous compilation strategy, the platform should be automatically detected, but you can manually override this decision by specifying either `AKS_POSIX` or `AKS_WIN` during compilation.
-
-When compiling as a library, it's probably a good idea to specify `AKS_FILE64` to enable 64-bit file offsets, as explained in the previous section.
+When compiling the object file for `aksview.c`, you will need to make sure that both `aksview.h` and `aksmacro.h` are in the include path.  As with the previous compilation strategy, the platform should be automatically detected, but you can manually override this decision by specifying either `AKS_POSIX` or `AKS_WIN` during compilation.  Also like the previous compilation strategy, you must define `_FILE_OFFSET_BITS=64` when building on POSIX.
 
 On Windows, by default the static library will be built in ANSI mode, but you can build a Unicode mode library by specifying both `UNICODE` and `_UNICODE` while building, as explained in more detail in the previous section.
 
-__Caution:__ On Windows, make sure that the mode chosen for the client application matches the mode chosen for the AKSView static library.  That is, if the client application is built in ANSI mode the AKSView static library should also have been built in ANSI mode, and if the client application is built in Unicode mode the AKSView static library should also have been built in Unicode mode.  If the build modes do not match, faults and errors may occur unpredictably because one is performing UTF-8 translation while the other is not.  For Windows, you should probably have two AKSView static library builds, one for ANSI and the other for Unicode, and be sure that you link the correct one to your client application.
+__Caution:__ On Windows, make sure that the mode chosen for the client application matches the mode chosen for the AKSView static library.  That is, if the client application is built in ANSI mode the AKSView static library should also have been built in ANSI mode, and if the client application is built in Unicode mode the AKSView static library should also have been built in Unicode mode.  If the build modes do not match, errors may occur unpredictably when opening file paths because one is performing UTF-8 translation on the path while the other is not.  For Windows, you should probably have two AKSView static library builds, one for ANSI and the other for Unicode, and be sure that you link the correct one to your client application.
 
 ## Viewer objects
 
@@ -38,7 +36,7 @@ AKSView uses `AKSVIEW *` pointers as handles.  You can create a handle to a new 
 
     AKSVIEW *aksview_create(const char *pPath, int flags, int *perr);
 
-The `pPath` parameter is the path to a file that you want to open.  It's best to stay with regular disk files here, as attempting to memory-map devices and files on network drives may have platform-specific behavior.  There is no way to map standard input, standard output, or standard error.  On POSIX and Windows in ANSI mode, the given path will be passed through to the operating system.  On Windows in Unicode mode, the given path must be in UTF-8, and it will be translated automatically to UTF-16 before being passed through to the operating system.
+The `pPath` parameter is the path to a file that you want to open.  It's best to stay with regular disk files here, as attempting to memory-map devices and files on network drives may have platform-specific behavior.  There is no way to map standard input, standard output, or standard error.  On POSIX and Windows in ANSI mode, the given path will be passed through to the operating system.  On Windows in Unicode mode, the given path should be in UTF-8, and it will be translated automatically to UTF-16 before being passed through to the operating system; an error will occur if the path is not UTF-8.
 
 The `flags` parameter accepts the following flags:
 
@@ -68,6 +66,12 @@ Finally, the `perr` parameter is an optional pointer to an integer that will rec
 
 The return value is a pointer to a string containing an error message.  If the given code is zero, `No error` is returned.  If the given code is not recognized, `Unknown error` is returned.  The error message is statically allocated; do not attempt to release it.
 
+You can check whether a viewer is read-write or read-only using the following function:
+
+    int aksview_writable(AKSVIEW *pv);
+
+This function returns non-zero for read-write viewers, and zero for read-only viewers.  Certain viewer functions described later will fault if you try to use them on read-only viewers.
+
 You should eventually close each viewer object with the following function:
 
     void aksview_close(AKSVIEW *pv);
@@ -80,7 +84,7 @@ The most basic viewer operations are to get and set the length of the viewed fil
 
     int64_t aksview_getlen(AKSVIEW *pv);
 
-The return value is the number of bytes in the file, which can be zero or greater.  The value is cached so that this function should usually be very quick to call.  The value shouldn't change unless you explicitly change it with `aksview_setlen`.
+The return value is the number of bytes in the file, which can be zero or greater.  The value is cached so that this function should be very quick to call.  The value won't change unless you explicitly change it with `aksview_setlen`.
 
 To set the length of the viewed file, use the following function:
 
@@ -88,21 +92,23 @@ To set the length of the viewed file, use the following function:
 
 The `newlen` parameter must be zero or greater.  It specifies the new length of the file in bytes.  You can only use this function on read-write handles; a fault will occur if you try this on a read-only handle.  If the new length is shorter than the old length, data will be dropped from the end of the file.  If the new length is longer than the old length, the contents of the file between the old end of the file and the new end of the file are undefined.  The viewer will detect whether the given size is equal to the current size and do nothing in that case.
 
-On Windows, `GetFileSize` is used to detect the initial size of the file and `SetFilePointer` along with `SetEndOfFile` are used to change the length of a file.  On POSIX, `fstat` is used to detect the initial size of the file, the `aksmacro.h` wrapper `fseekw` followed by a `fwrite` to the new last byte of the file is used to increase the length of a file, and `ftruncate` is used to decrease the length of a file.
+On Windows, `GetFileSize` is used to detect the initial size of the file and `SetFilePointer` along with `SetEndOfFile` are used to change the length of a file.  On POSIX, `fstat` is used to detect the initial size of the file, and `lseek` followed by a `write` to the new last byte of the file is used to increase the length of a file while `ftruncate` is used to decrease the length of a file.
 
-Memory maps need to be closed and reopened during the resizing process, so you should avoid frequent resizing.
+Memory maps are unmapped during the resizing process, so you should avoid frequent resizing.  If you need a file to get longer and longer, either use a growing strategy such as doubling the file length, or use `<stdio.h>` instead of AKSView, since `<stdio.h>` is much more stream oriented.
 
 ## Window hints
 
-Internally, AKSView uses memory mapping to perform fast, random-access I/O with the file.  The viewer divides the file into non-overlapping _windows_.  Only one window can be mapped at a time.  These windows should be large, and it is ideal if the whole file can fit within a single window.  The memory-mapped strategy is not efficient with small windows.
+Internally, AKSView uses memory mapping to perform fast, random-access I/O with the file.  The viewer divides the file into non-overlapping _windows_.  Only one window can be mapped at a time.  These windows should be large, and it is ideal if the whole file can fit within a single window.  The memory-mapped strategy is not efficient with small windows &mdash; `<stdio.h>` will work better if you are using small buffers.
 
 The _window hint_ of a viewer object gives the viewer a guideline for the approximate maximum size of a window.  By default, this hint is 16 megabytes.  You can change the hint of a viewer at any time with the following function:
 
     void aksview_sethint(AKSVIEW *pv, int32_t wlen);
 
-The `wlen` parameter gives the new window hint in bytes.  It must be greater than zero.  If anything is currently memory mapped when the hint is given, the current memory mapping will be unloaded.  You should therefore be sparing in the use of this function.
+The `wlen` parameter gives the new window hint in bytes.  It may have any value.  See the documentation of this function in the header for specifics of how the hint is used to compute the actual window size.
 
-The actual size of the window depends on the specific paging size allowed by the particular platform.  First, the hint will be rounded up in size to align with a page boundary.  Second, if the adjusted hint is larger than the whole underlying file, the hint will be reduced to the size of the file.
+Generally, the larger the hints the better.  The only issue is that if you are working with huge files or have multiple file viewer objects open at the same time, you have to be careful not to exhaust the process address space.
+
+The window is __not__ an actual file buffer, because memory mapping will load and store pages on demand using the virtual memory system.  This is why large windows work quickly.  It is much better to let the highly optimized virtual memory system of the operating system figure out when to load what page than to attempt to implement your own caching system.  The only issue is not exceeding the process address space.
 
 ## Load and store functions
 
