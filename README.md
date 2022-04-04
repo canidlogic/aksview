@@ -1,14 +1,40 @@
-# aksview
+# AKSView
 
-Memory-mapped file viewer module of Arctic Kernel Services (AKS).  This module provides an alternative file I/O mechanism that may work better than the standard C library `<stdio.h>` in certain cases.  The `aksview` module does not use `<stdio.h>` at all, relying instead on the memory-mapping facility of the underlying operating system.  `aksview` is compatible with both Windows and POSIX platforms.
+Memory-mapped file viewer module of Arctic Kernel Services (AKS).  This module (`libaksview`, known henceforth as AKSView) provides an alternative file I/O mechanism that may work better than the standard C library `<stdio.h>` in certain cases.  AKSView does not use `<stdio.h>` at all, relying instead on the memory-mapping facility of the underlying operating system.  AKSView is compatible with both Windows and POSIX platforms.
 
-The only dependency is on `aksmacro` for portability.  `aksview` has `AKS_FILE64` specified so if you are compiling on POSIX you will need to define `_FILE_OFFSET_BITS=64` to enable 64-bit file support.
+AKSView should work in multithreaded environments provided that no viewer object is used at the same time from two different threads.  However, trying to pass viewer objects across process boundaries should be avoided, as this may have different behavior depending on how the underlying platform handles memory mapping.
 
-`aksview` should work in multithreaded environments provided that no viewer object is used at the same time from two different threads.  However, trying to pass viewer objects across process boundaries should be avoided, as this may have different behavior depending on how the underlying platform handles memory mapping.
+## Compilation
+
+The only dependency is on `aksmacro` for portability.  Since `aksmacro` is a macro library consisting of only a single header, all you need to do is make sure that `aksmacro.h` is in the include path when compiling AKSView.
+
+There are two compilation strategies, documented in the subsections below.
+
+### Compiling together with the client application
+
+The first compilation strategy is to compile the `aksview.c` source file directly together with the rest of the application.  To do this, you need to make sure that the `aksview.h` header and the dependency `aksmacro.h` are in the include path, and then specify `aksview.c` as one of the modules that you are compiling, just as if it were another module in your application.
+
+AKSView should be able to automatically detect whether it is being built on POSIX or Windows using the `aksmacro` header.  If for some reason it does not detect this correctly, you can manually define either `AKS_POSIX` or `AKS_WIN` while compiling to force the correct decision.
+
+If you want to enable support for 64-bit file offsets, specify `AKS_FILE64` while compiling.  On POSIX, this will require you to also define `_FILE_OFFSET_BITS=64` or else `aksmacro.h` will raise an error during compilation.  If you do not define `AKS_FILE64` while compiling, AKSView will not be able to reliably work with files near or beyond 2GB in size.
+
+On Windows, by default AKSView will be built in ANSI mode, which means that no translation macros are required, but you may not be able to access file paths that include Unicode characters.  If you define both `UNICODE` and `_UNICODE` then AKSView will be built in Unicode mode and automatically translate string parameters from UTF-8 to UTF-16 before passing them to Windows.  This allows for full support of Unicode file paths, but your application should then use the `aksmacro` translation macros consistently and also have a translated `maint` function so that Unicode parameters are correctly translated from UTF-16 into UTF-8.  (See `aksmacro` for further information.)
+
+### Compiling as a static library
+
+The second compilation strategy is compile AKSView as a static library that can then be included just like any other static library.
+
+When compiling the object file for `aksview.c`, you will need to make sure that both `aksview.h` and `aksmacro.h` are in the include path.  As with the previous compilation strategy, the platform should be automatically detected, but you can manually override this decision by specifying either `AKS_POSIX` or `AKS_WIN` during compilation.
+
+When compiling as a library, it's probably a good idea to specify `AKS_FILE64` to enable 64-bit file offsets, as explained in the previous section.
+
+On Windows, by default the static library will be built in ANSI mode, but you can build a Unicode mode library by specifying both `UNICODE` and `_UNICODE` while building, as explained in more detail in the previous section.
+
+__Caution:__ On Windows, make sure that the mode chosen for the client application matches the mode chosen for the AKSView static library.  That is, if the client application is built in ANSI mode the AKSView static library should also have been built in ANSI mode, and if the client application is built in Unicode mode the AKSView static library should also have been built in Unicode mode.  If the build modes do not match, faults and errors may occur unpredictably because one is performing UTF-8 translation while the other is not.  For Windows, you should probably have two AKSView static library builds, one for ANSI and the other for Unicode, and be sure that you link the correct one to your client application.
 
 ## Viewer objects
 
-The `aksview` module uses `AKSVIEW *` pointers as handles.  You can create a handle to a new viewer object by using the following constructor:
+AKSView uses `AKSVIEW *` pointers as handles.  You can create a handle to a new viewer object by using the following constructor:
 
     AKSVIEW *aksview_create(const char *pPath, int flags, int *perr);
 
@@ -68,7 +94,7 @@ Memory maps need to be closed and reopened during the resizing process, so you s
 
 ## Window hints
 
-Internally, `aksview` uses memory mapping to perform fast, random-access I/O with the file.  The viewer divides the file into non-overlapping _windows_.  Only one window can be mapped at a time.  These windows should be large, and it is ideal if the whole file can fit within a single window.  The memory-mapped strategy is not efficient with small windows.
+Internally, AKSView uses memory mapping to perform fast, random-access I/O with the file.  The viewer divides the file into non-overlapping _windows_.  Only one window can be mapped at a time.  These windows should be large, and it is ideal if the whole file can fit within a single window.  The memory-mapped strategy is not efficient with small windows.
 
 The _window hint_ of a viewer object gives the viewer a guideline for the approximate maximum size of a window.  By default, this hint is 16 megabytes.  You can change the hint of a viewer at any time with the following function:
 
@@ -80,25 +106,25 @@ The actual size of the window depends on the specific paging size allowed by the
 
 ## Load and store functions
 
-`aksview` uses a load/store architecture that can access binary integers at any offset within the viewed file, in both big endian and little endian orderings.  The following are the load/store functions:
+AKSView uses a load/store architecture that can access binary integers at any offset within the viewed file, in both big endian and little endian orderings.  The following are the load/store functions:
 
-     uint8_t aksview_read8u(AKSVIEW *pv, int64_t pos);
-      int8_t aksview_read8s(AKSVIEW *pv, int64_t pos);
-        void aksview_write8u(AKSVIEW *pv, int64_t pos, uint8_t v);
-        void aksview_write8s(AKSVIEW *pv, int64_t pos,  int8_t v);
+     uint8_t aksview_read8u(  AKSVIEW *pv, int64_t pos);
+      int8_t aksview_read8s(  AKSVIEW *pv, int64_t pos);
+        void aksview_write8u( AKSVIEW *pv, int64_t pos, uint8_t v);
+        void aksview_write8s( AKSVIEW *pv, int64_t pos,  int8_t v);
     
-    uint16_t aksview_read16u(AKSVIEW *pv, int64_t pos, int le);
-     int16_t aksview_read16s(AKSVIEW *pv, int64_t pos, int le);
+    uint16_t aksview_read16u( AKSVIEW *pv, int64_t pos, int le);
+     int16_t aksview_read16s( AKSVIEW *pv, int64_t pos, int le);
         void aksview_write16u(AKSVIEW *pv, int64_t pos, int le, uint16_t v);
         void aksview_write16s(AKSVIEW *pv, int64_t pos, int le,  int16_t v);
     
-    uint32_t aksview_read32u(AKSVIEW *pv, int64_t pos, int le);
-     int32_t aksview_read32s(AKSVIEW *pv, int64_t pos, int le);
+    uint32_t aksview_read32u( AKSVIEW *pv, int64_t pos, int le);
+     int32_t aksview_read32s( AKSVIEW *pv, int64_t pos, int le);
         void aksview_write32u(AKSVIEW *pv, int64_t pos, int le, uint32_t v);
         void aksview_write32s(AKSVIEW *pv, int64_t pos, int le,  int32_t v);
     
-    uint64_t aksview_read64u(AKSVIEW *pv, int64_t pos, int le);
-     int64_t aksview_read64s(AKSVIEW *pv, int64_t pos, int le);
+    uint64_t aksview_read64u( AKSVIEW *pv, int64_t pos, int le);
+     int64_t aksview_read64s( AKSVIEW *pv, int64_t pos, int le);
         void aksview_write64u(AKSVIEW *pv, int64_t pos, int le, uint64_t v);
         void aksview_write64s(AKSVIEW *pv, int64_t pos, int le,  int64_t v);
 
@@ -110,7 +136,7 @@ The `v` parameters of all the writing functions are the values to store.  Signed
 
 It is significantly faster to load and store at aligned file offset than at unaligned file offsets.  Unaligned file offsets will be automatically decomposed into multiple aligned operations, but this is less efficient.
 
-`aksview` requires the system page size to at least be a multiple of eight, so all aligned load and store operations will be contained within a single window.  If the current window does not contain the desired integer or no window is currently loaded, the memory map will be reloaded to position the correct window.
+AKSView requires the system page size to at least be a multiple of eight, so all aligned load and store operations will be contained within a single window.  If the current window does not contain the desired integer or no window is currently loaded, the memory map will be reloaded to position the correct window.
 
 Due to the way memory mapping works, storing something in a viewer object does not necessarily update the disk file right away.  If you want to ensure that all outstanding changes have been actually written to the disk file, you can call the following function:
 
