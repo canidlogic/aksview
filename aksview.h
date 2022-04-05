@@ -13,6 +13,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* On POSIX, check that 64-bit file offsets enabled */
+#include "aksmacro.h"
+#ifdef AKS_POSIX
+#ifdef _FILE_OFFSET_BITS
+#if (_FILE_OFFSET_BITS != 64)
+#error aksview: must declare _FILE_OFFSET_BITS=64
+#endif
+#else
+#error aksview: must declare _FILE_OFFSET_BITS=64
+#endif
+#endif
+
 /*
  * The maximum allowed length for a file.
  * 
