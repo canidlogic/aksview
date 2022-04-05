@@ -51,12 +51,12 @@ struct AKSVIEW_TAG;
 typedef struct AKSVIEW_TAG AKSVIEW;
 
 /*
- * Flags used for aksview_create().
+ * Modes used for aksview_create().
  */
-#define AKSVIEW_RDONLY  (1)
-#define AKSVIEW_RDWR    (2)
-#define AKSVIEW_CREAT   (4)
-#define AKSVIEW_EXCL    (8)
+#define AKSVIEW_READONLY  (1)
+#define AKSVIEW_EXISTING  (2)
+#define AKSVIEW_REGULAR   (3)
+#define AKSVIEW_EXCLUSIVE (4)
 
 /*
  * Error code definitions.
@@ -96,25 +96,22 @@ const char *aksview_errstr(int code);
  * (If you get translation errors, check that AKSView and the client
  * application are both compiled in the same mode.)
  * 
- * flags must be one of the following four combinations:
+ * mode must be one of the following four:
  * 
- *   (1) AKSVIEW_RDONLY
- *   (2) AKSVIEW_RDWR
- *   (3) AKSVIEW_RDWR | AKSVIEW_CREAT
- *   (4) AKSVIEW_RDWR | AKSVIEW_CREAT | AKSVIEW_EXCL
+ *   (1) AKSVIEW_READONLY
+ *   (2) AKSVIEW_EXISTING
+ *   (3) AKSVIEW_REGULAR
+ *   (4) AKSVIEW_EXCLUSIVE
  * 
- * Unrecognized flags are ignored.
+ * An unrecognized mode will result in an error.
  * 
- * In modes (1) and (2), the file must already exist or the function
- * fails.  The two modes differ in that (1) is read-only while (2)
- * allows for writing.
- * 
- * In mode (3), a new file will be created if it doesn't exist.  If a
- * file already does exist, the function will attempt to overwrite it
- * and clear its length to zero.
- * 
- * In mode (4), the file must not already exist.  It will be created by
- * this function.
+ * Mode (1) creates a read-only viewer on a file that must already
+ * exist.  Modes (2)-(4) create read/write viewers.  The only difference
+ * is the supported state of the file.  (2) only works with files that
+ * already exist, failing if the file does not exist.  (3) works with
+ * both files that already exist and files that do not exist, creating a
+ * new, empty file if none already exists.  (4) only creates a new,
+ * empty file, and fails if the file already exists.
  * 
  * perr is optionally a pointer to an integer that will receive an error
  * code.  If there is no error, AKSVIEW_ERR_NONE (0) is written.
@@ -134,7 +131,7 @@ const char *aksview_errstr(int code);
  * 
  *   pPath - path to the file to create or open
  * 
- *   flags - option flags
+ *   mode - the file mode for opening
  * 
  *   perr - pointer to error code variable or NULL
  * 
@@ -142,7 +139,7 @@ const char *aksview_errstr(int code);
  * 
  *   a new viewer object or NULL if the function failed
  */
-AKSVIEW *aksview_create(const char *pPath, int flags, int *perr);
+AKSVIEW *aksview_create(const char *pPath, int mode, int *perr);
 
 /*
  * Close a viewer object.
