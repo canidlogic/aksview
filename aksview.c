@@ -13,17 +13,6 @@
 #define AKS_TRANSLATE
 #include "aksmacro.h"
 
-/* On POSIX, check that 64-bit file offsets enabled */
-#ifdef AKS_POSIX
-#ifdef _FILE_OFFSET_BITS
-#if (_FILE_OFFSET_BITS != 64)
-#error aksview: must declare _FILE_OFFSET_BITS=64
-#endif
-#else
-#error aksview: must declare _FILE_OFFSET_BITS=64
-#endif
-#endif
-
 /* OS-specific headers */
 #ifdef AKS_WIN
 /* Windows headers */
