@@ -63,7 +63,11 @@ typedef struct AKSVIEW_TAG AKSVIEW;
  * 
  * Use aksview_errstr() to convert these to error messages.
  */
-#define AKSVIEW_ERR_NONE  (0)
+#define AKSVIEW_ERR_NONE      (0)
+#define AKSVIEW_ERR_BADMODE   (1)
+#define AKSVIEW_ERR_TRANSLATE (2)
+#define AKSVIEW_ERR_OPEN      (3)
+#define AKSVIEW_ERR_LENQUERY  (4)
 
 /*
  * Given an error code, return an error message for it.
