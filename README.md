@@ -34,29 +34,29 @@ __Caution:__ On Windows, make sure that the mode chosen for the client applicati
 
 AKSView uses `AKSVIEW *` pointers as handles.  You can create a handle to a new viewer object by using the following constructor:
 
-    AKSVIEW *aksview_create(const char *pPath, int flags, int *perr);
+    AKSVIEW *aksview_create(const char *pPath, int mode, int *perr);
 
 The `pPath` parameter is the path to a file that you want to open.  It's best to stay with regular disk files here, as attempting to memory-map devices and files on network drives may have platform-specific behavior.  There is no way to map standard input, standard output, or standard error.  On POSIX and Windows in ANSI mode, the given path will be passed through to the operating system.  On Windows in Unicode mode, the given path should be in UTF-8, and it will be translated automatically to UTF-16 before being passed through to the operating system; an error will occur if the path is not UTF-8.
 
-The `flags` parameter accepts the following flags:
+The `mode` parameter must be one of the following:
 
-- `AKSVIEW_RDONLY` - open in read-only mode
-- `AKSVIEW_RDWR` - open in read/write mode
-- `AKSVIEW_CREAT` - create file if it doesn't exist
-- `AKSVIEW_EXCL` - file must not already exist
+- `AKSVIEW_READONLY` - open existing for read-only
+- `AKSVIEW_EXISTING` - open existing for read/write
+- `AKSVIEW_REGULAR` - create file if it doesn't exist
+- `AKSVIEW_EXCLUSIVE` - file must not already exist
 
-You must specify either `AKSVIEW_RDONLY` or `AKSVIEW_RDWR` but not both.  If you specify `AKSVIEW_CREAT`, you must specify `AKSVIEW_RDWR`.  If you specify `AKSVIEW_EXCL`, you must also specify `AKSVIEW_CREAT`.  Therefore, only the following combinations are valid:
+The modes differ by whether the resulting viewer is read-only, whether they can open a file that already exists, and whether they can create a file if none already exists.  The following chart summarizes the differences:
 
-     RDONLY | RDWR | CREAT | EXCL | Meaning
-    ========+======+=======+======+==============================
-      YES   |  no  |  no   |  no  | Open existing for read-only
-       no   | YES  |  no   |  no  | Open existing for read/write
-       no   | YES  |  YES  |  no  | Create or overwrite (r/w)
-       no   | YES  |  YES  | YES  | Create new (r/w)
+       Mode    | Read-only? | Open existing? | Create new?
+    ===========+============+================+=============
+     READONLY  |    YES     |      YES       |     no
+     EXISTING  |     no     |      YES       |     no
+     REGULAR   |     no     |      YES       |     YES
+     EXCLUSIVE |     no     |       no       |     YES
 
-For read-only, the only valid mode is to open a file that already exists and fail if the file does not already exist.  For read-write, there are three different modes.  In the _open existing_ mode, the file must already exist and the function fails if it does not exist.  In the _create or overwrite_ mode, the file is created if it does not exist, or opened and truncated to empty if it already exists.  In the _create new_ mode, the file must not already exist, and it is created as a new, empty file.
+None of these options will truncate an existing file to length zero.  If you need to do this, you can easily use `aksview_setlen()`.
 
-On POSIX systems, when the `AKSVIEW_CREAT` flag is specified, the file mode used to create a file will have read and write permissions enabled for everyone.  The `umask` will then automatically disable permissions based on the user and process settings.
+On POSIX systems, when a new file is created, the access mode specified is for everyone to have read and write access.  This specified access mode will then automatically be modified by the `umask` associated with the process to disable permissions that shouldn't be granted.
 
 On Windows systems, the sharing mode for the opened file will disable all sharing because sharing doesn't work well with memory mapping, except if the viewer has been opened read-only, in which case read sharing will be permitted.
 
