@@ -148,4 +148,4 @@ Due to the way memory mapping works, storing something in a viewer object does n
 
     void aksview_flush(AKSVIEW *pv);
 
-This function will use `msync` on POSIX and `FlushViewOfFile` on Windows to ensure changes are actually written to disk.  It will also explicitly update the last-modified timestamp of the file, using `SetFileTime` on Windows and `utime` on POSIX.  When viewer objects are closed, they are automatically flushed.
+This function will use `msync` on POSIX and `FlushViewOfFile` on Windows to ensure changes are actually written to disk.  A flush will only be performed if the contents of the file were somehow modified.  When viewer objects are closed, they are automatically flushed.
