@@ -8,6 +8,7 @@
  */
 
 #include "aksview.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -152,6 +153,36 @@ struct AKSVIEW_TAG {
 };
 
 /*
+ * Default fault and warn handlers
+ * ===============================
+ */
+
+static void default_fault_handler(int line) {
+  fprintf(stderr, "aksview fault line %d\n", line);
+  exit(EXIT_FAILURE);
+}
+
+static void default_warn_handler(int line) {
+  fprintf(stderr, "aksview warn line %d\n", line);
+}
+
+/*
+ * Fault and warn pointers
+ * =======================
+ */
+
+static void (*m_fpFault)(int) = &default_fault_handler;
+static void (*m_fpWarn)(int) = &default_warn_handler;
+
+/*
+ * Fault and warn macros
+ * =====================
+ */
+
+#define fault(line) m_fpFault(line)
+#define warn(line) m_fpWarn(line)
+
+/*
  * Local functions
  * ===============
  */
@@ -201,7 +232,7 @@ static int isLESystem(void) {
     
   } else {
     /* Not a two's complement system */
-    abort();
+    fault(__LINE__);
   }
   
   /* Return result */
@@ -250,7 +281,7 @@ static int32_t getPageSize(void) {
   
   /* Check that result is at least eight and a multiple of eight */
   if ((result < 8) || ((result & 0x7) != 0)) {
-    abort();
+    fault(__LINE__);
   }
   
   /* Return result */
@@ -292,17 +323,17 @@ static int loadFileSize(AKSVIEW *pv) {
   
   /* Check parameter */
   if (pv == NULL) {
-    abort();
+    fault(__LINE__);
   }
   
   /* Check fh field */
 #ifdef AKS_WIN
   if (pv->fh == INVALID_HANDLE_VALUE) {
-    abort();
+    fault(__LINE__);
   }
 #else
   if (pv->fh == -1) {
-    abort();
+    fault(__LINE__);
   }
 #endif
   
@@ -378,13 +409,13 @@ static int computeWindow(AKSVIEW *pv) {
   
   /* Check parameter and fields */
   if (pv == NULL) {
-    abort();
+    fault(__LINE__);
   }
   if ((pv->flen < 0) || (pv->flen > AKSVIEW_MAXLEN)) {
-    abort();
+    fault(__LINE__);
   }
   if ((pv->pgsize < 8) || ((pv->pgsize & 0x7) != 0)) {
-    abort();
+    fault(__LINE__);
   }
   
   /* Begin with the hint */
@@ -446,7 +477,7 @@ static void unmap(AKSVIEW *pv) {
 #ifdef AKS_WIN
   if (pv->fh_map != NULL) {
     if (!CloseHandle(pv->fh_map)) {
-      abort();
+      warn(__LINE__);
     }
     pv->fh_map = NULL;
   }
@@ -467,7 +498,7 @@ static void unview(AKSVIEW *pv) {
   
   /* Check parameter */
   if (pv == NULL) {
-    abort();
+    fault(__LINE__);
   }
   
   /* Only proceed if a window is mapped */
@@ -479,11 +510,11 @@ static void unview(AKSVIEW *pv) {
     /* Unmap the view */
 #ifdef AKS_WIN
     if (!UnmapViewOfFile(pv->pw)) {
-      abort();
+      warn(__LINE__);
     }
 #else
     if (munmap(pv->pw, (size_t) (pv->wlast - pv->wfirst + 1))) {
-      abort();
+      warn(__LINE__);
     }
 #endif
 
@@ -524,10 +555,10 @@ static void mapByte(AKSVIEW *pv, int64_t b) {
   
   /* Check parameters */
   if (pv == NULL) {
-    abort();
+    fault(__LINE__);
   }
   if ((b < 0) || (b >= pv->flen)) {
-    abort();
+    fault(__LINE__);
   }
   
   /* Only proceed if byte not currently mapped */
@@ -576,7 +607,7 @@ static void mapByte(AKSVIEW *pv, int64_t b) {
                       NULL);
       }
       if (pv->fh_map == NULL) {
-        abort();
+        fault(__LINE__);
       }
     }
 #endif
@@ -601,7 +632,7 @@ static void mapByte(AKSVIEW *pv, int64_t b) {
                             (off_t) w);
     }
     if (pv->pw == MAP_FAILED) {
-      abort();
+      fault(__LINE__);
     }
 #else
     if (pv->flags & FLAG_RO) {
@@ -620,7 +651,7 @@ static void mapByte(AKSVIEW *pv, int64_t b) {
                             (SIZE_T) ws);
     }
     if (pv->pw == NULL) {
-      abort();
+      fault(__LINE__);
     }
 #endif
     
@@ -636,6 +667,23 @@ static void mapByte(AKSVIEW *pv, int64_t b) {
  * 
  * See the header for specifications.
  */
+
+/*
+ * aksview_onerror function.
+ */
+void aksview_onerror(void (*fpFault)(int), void (*fpWarn)(int)) {
+  if (fpFault != NULL) {
+    m_fpFault = fpFault;
+  } else {
+    m_fpFault = &default_fault_handler;
+  }
+  
+  if (fpWarn != NULL) {
+    m_fpWarn = fpWarn;
+  } else {
+    m_fpWarn = &default_warn_handler;
+  }
+}
 
 /*
  * aksview_errstr function.
@@ -693,7 +741,7 @@ AKSVIEW *aksview_create(const char *pPath, int mode, int *perr) {
   
   /* Initial parameter check */
   if (pPath == NULL) {
-    abort();
+    fault(__LINE__);
   }
   
   /* If we weren't given an error return location, set it to dummy */
@@ -728,7 +776,7 @@ AKSVIEW *aksview_create(const char *pPath, int mode, int *perr) {
   if (status) {
     pv = (AKSVIEW *) calloc(1, sizeof(AKSVIEW));
     if (pv == NULL) {
-      abort();
+      fault(__LINE__);
     }
   }
   
@@ -767,7 +815,7 @@ AKSVIEW *aksview_create(const char *pPath, int mode, int *perr) {
   if (status) {
     pv->pPathCopy = (char *) malloc(strlen(pPath) + 1);
     if (pv->pPathCopy == NULL) {
-      abort();
+      fault(__LINE__);
     }
     strcpy(pv->pPathCopy, pPath);
   }
@@ -796,7 +844,7 @@ AKSVIEW *aksview_create(const char *pPath, int mode, int *perr) {
       
     } else {
       /* Shouldn't happen */
-      abort();
+      fault(__LINE__);
     }
     
     /* Call through to API function, passing R/W permissions for
@@ -839,7 +887,7 @@ AKSVIEW *aksview_create(const char *pPath, int mode, int *perr) {
       
     } else {
       /* Shouldn't happen */
-      abort();
+      fault(__LINE__);
     }
 
     /* Open the file */
@@ -909,14 +957,14 @@ AKSVIEW *aksview_create(const char *pPath, int mode, int *perr) {
 #ifdef AKS_WIN
       if (pv->fh != INVALID_HANDLE_VALUE) {
         if (!CloseHandle(pv->fh)) {
-          abort();
+          warn(__LINE__);
         }
         pv->fh = INVALID_HANDLE_VALUE;
       }
 #else
       if (pv->fh != -1) {
         if (close(pv->fh)) {
-          abort();
+          warn(__LINE__);
         }
         pv->fh = -1;
       }
@@ -968,12 +1016,12 @@ void aksview_close(AKSVIEW *pv) {
 #ifdef AKS_POSIX
       t = time(NULL);
       if (t < 0) {
-        abort();
+        fault(__LINE__);
       }
 #else
       GetSystemTime(&st);
       if (!SystemTimeToFileTime(&st, &ft)) {
-        abort();
+        fault(__LINE__);
       }
 #endif
     
@@ -982,11 +1030,11 @@ void aksview_close(AKSVIEW *pv) {
       tb.actime  = t;
       tb.modtime = t;
       if (utime(pv->pPathCopy, &tb)) {
-        abort();
+        fault(__LINE__);
       }
 #else
       if (!SetFileTime(pv->fh, NULL, &ft, &ft)) {
-        abort();
+        fault(__LINE__);
       }
 #endif
     }
@@ -1003,14 +1051,14 @@ void aksview_close(AKSVIEW *pv) {
 #ifdef AKS_WIN
     if (pv->fh != INVALID_HANDLE_VALUE) {
       if (!CloseHandle(pv->fh)) {
-        abort();
+        warn(__LINE__);
       }
       pv->fh = INVALID_HANDLE_VALUE;
     }
 #else
     if (pv->fh != -1) {
       if (close(pv->fh)) {
-        abort();
+        warn(__LINE__);
       }
       pv->fh = -1;
     }
@@ -1030,7 +1078,7 @@ int aksview_writable(AKSVIEW *pv) {
   
   /* Check parameter */
   if (pv == NULL) {
-    abort();
+    fault(__LINE__);
   }
   
   /* Query flags */
@@ -1051,7 +1099,7 @@ int64_t aksview_getlen(AKSVIEW *pv) {
   
   /* Check parameter */
   if (pv == NULL) {
-    abort();
+    fault(__LINE__);
   }
   
   /* Return result */
@@ -1076,10 +1124,10 @@ int aksview_setlen(AKSVIEW *pv, int64_t newlen) {
   
   /* Check parameters and state */
   if ((pv == NULL) || (newlen < 0) || (newlen > AKSVIEW_MAXLEN)) {
-    abort();
+    fault(__LINE__);
   }
   if (pv->flags & FLAG_RO) {
-    abort();
+    fault(__LINE__);
   }
   
   /* Only proceed if new length is actually different */
@@ -1138,7 +1186,7 @@ int aksview_setlen(AKSVIEW *pv, int64_t newlen) {
       
     } else {
       /* Shouldn't happen */
-      abort();
+      fault(__LINE__);
     }
 #endif
   
@@ -1167,7 +1215,7 @@ void aksview_sethint(AKSVIEW *pv, int32_t wlen) {
   
   /* Check parameters */
   if (pv == NULL) {
-    abort();
+    fault(__LINE__);
   }
   
   /* Only proceed if new hint is actually different */
@@ -1190,7 +1238,7 @@ void aksview_flush(AKSVIEW *pv) {
   
   /* Check parameters */
   if (pv == NULL) {
-    abort();
+    fault(__LINE__);
   }
   
   /* Only proceed if the viewer object is has dirty flag set AND there
@@ -1200,11 +1248,11 @@ void aksview_flush(AKSVIEW *pv) {
     /* Flush any changes out to disk */
 #ifdef AKS_WIN
     if (!FlushViewOfFile(pv->pw, 0)) {
-      abort();
+      warn(__LINE__);
     }
 #else
     if (msync(pv->pw, (size_t) (pv->wlast - pv->wfirst + 1), MS_SYNC)) {
-      abort();
+      warn(__LINE__);
     }
 #endif
 
