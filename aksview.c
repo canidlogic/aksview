@@ -538,8 +538,9 @@ static void unview(AKSVIEW *pv) {
  * b must be greater than or equal to zero and less than the file length
  * or a fault occurs.
  * 
- * Provided that b is aligned, the whole aligned integer starting at b
- * up to a 64-bit size will be included in the mapped window.
+ * Windows are always aligned to at least eight-byte boundaries, so any
+ * aligned integer up to 64-bit size that includes b will be fully
+ * contained within the window.
  * 
  * Parameters:
  * 
@@ -1258,5 +1259,859 @@ void aksview_flush(AKSVIEW *pv) {
 
     /* Invert the dirty flag to clear */
     pv->flags ^= FLAG_DT;
+  }
+}
+
+/*
+ * aksview_read8u function.
+ */
+uint8_t aksview_read8u(AKSVIEW *pv, int64_t pos) {
+  /* Map the byte in the window, which also checks parameters */
+  mapByte(pv, pos);
+  
+  /* Return the byte */
+  return (pv->pw)[pos - pv->wfirst];
+}
+
+/*
+ * aksview_read8s function.
+ */
+int8_t aksview_read8s(AKSVIEW *pv, int64_t pos) {
+  
+  int8_t result = 0;
+  
+  /* Map the byte in the window, which also checks parameters */
+  mapByte(pv, pos);
+  
+  /* Copy and recast the byte to signed */
+  memcpy(&result, &((pv->pw)[pos - pv->wfirst]), 1);
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * aksview_write8u function.
+ */
+void aksview_write8u(AKSVIEW *pv, int64_t pos, uint8_t v) {
+  /* Map the byte in the window, which also checks parameters */
+  mapByte(pv, pos);
+  
+  /* Check that not read-only */
+  if (pv->flags & FLAG_RO) {
+    fault(__LINE__);
+  }
+  
+  /* Set dirty and update timestamp flags */
+  pv->flags |= FLAG_DT;
+  pv->flags |= FLAG_UT;
+  
+  /* Write the byte */
+  (pv->pw)[pos - pv->wfirst] = v;
+}
+
+/*
+ * aksview_write8s function.
+ */
+void aksview_write8s(AKSVIEW *pv, int64_t pos, int8_t v) {
+  /* Map the byte in the window, which also checks parameters */
+  mapByte(pv, pos);
+  
+  /* Check that not read-only */
+  if (pv->flags & FLAG_RO) {
+    fault(__LINE__);
+  }
+  
+  /* Set dirty and update timestamp flags */
+  pv->flags |= FLAG_DT;
+  pv->flags |= FLAG_UT;
+  
+  /* Copy and recast the byte into the file */
+  memcpy(&((pv->pw)[pos - pv->wfirst]), &v, 1);
+}
+
+/*
+ * aksview_read16u function.
+ */
+uint16_t aksview_read16u(AKSVIEW *pv, int64_t pos, int le) {
+  uint8_t bb[2];
+  uint16_t result = 0;
+  
+  /* Rough check of parameters */
+  if ((pos < 0) || (pos >= AKSVIEW_MAXLEN) || (pv == NULL)) {
+    fault(__LINE__);
+  }
+  
+  /* If le parameter is non-zero, replace it with FLAG_LE so we can do
+   * an XOR check later */
+  if (le) {
+    le = FLAG_LE;
+  }
+  
+  /* Different handling depending on alignment */
+  if ((pos & 0x1) == 0) {
+    /* Map the last byte into the window, which also checks parameters
+     * and makes sure that the integer doesn't run beyond the end of the
+     * file */
+    mapByte(pv, pos + 1);
+    
+    /* Read the bytes, flipping if platform endianness and requested
+     * endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      bb[1] = (pv->pw)[pos - pv->wfirst];
+      bb[0] = (pv->pw)[pos - pv->wfirst + 1];
+    } else {
+      bb[0] = (pv->pw)[pos - pv->wfirst];
+      bb[1] = (pv->pw)[pos - pv->wfirst + 1];
+    }
+    
+    /* Copy and recast */
+    memcpy(&result, bb, 2);
+  
+  } else {
+    /* Unaligned so decompose call, flipping order of results if
+     * platform endianness and requested endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      bb[1] = aksview_read8u(pv, pos);
+      bb[0] = aksview_read8u(pv, pos + 1);
+    } else {
+      bb[0] = aksview_read8u(pv, pos);
+      bb[1] = aksview_read8u(pv, pos + 1);
+    }
+    
+    /* Copy and recast */
+    memcpy(&result, bb, 2);
+  }
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * aksview_read16s function.
+ */
+int16_t aksview_read16s(AKSVIEW *pv, int64_t pos, int le) {
+  uint8_t bb[2];
+  int16_t result = 0;
+  
+  /* Rough check of parameters */
+  if ((pos < 0) || (pos >= AKSVIEW_MAXLEN) || (pv == NULL)) {
+    fault(__LINE__);
+  }
+  
+  /* If le parameter is non-zero, replace it with FLAG_LE so we can do
+   * an XOR check later */
+  if (le) {
+    le = FLAG_LE;
+  }
+  
+  /* Different handling depending on alignment */
+  if ((pos & 0x1) == 0) {
+    /* Map the last byte into the window, which also checks parameters
+     * and makes sure that the integer doesn't run beyond the end of the
+     * file */
+    mapByte(pv, pos + 1);
+    
+    /* Read the bytes, flipping if platform endianness and requested
+     * endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      bb[1] = (pv->pw)[pos - pv->wfirst];
+      bb[0] = (pv->pw)[pos - pv->wfirst + 1];
+    } else {
+      bb[0] = (pv->pw)[pos - pv->wfirst];
+      bb[1] = (pv->pw)[pos - pv->wfirst + 1];
+    }
+    
+    /* Copy and recast */
+    memcpy(&result, bb, 2);
+  
+  } else {
+    /* Unaligned so decompose call, flipping order of results if
+     * platform endianness and requested endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      bb[1] = aksview_read8u(pv, pos);
+      bb[0] = aksview_read8u(pv, pos + 1);
+    } else {
+      bb[0] = aksview_read8u(pv, pos);
+      bb[1] = aksview_read8u(pv, pos + 1);
+    }
+    
+    /* Copy and recast */
+    memcpy(&result, bb, 2);
+  }
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * aksview_write16u function.
+ */
+void aksview_write16u(AKSVIEW *pv, int64_t pos, int le, uint16_t v) {
+  uint8_t bb[2];
+  
+  /* Rough check of parameters */
+  if ((pos < 0) || (pos >= AKSVIEW_MAXLEN) || (pv == NULL)) {
+    fault(__LINE__);
+  }
+  
+  /* If le parameter is non-zero, replace it with FLAG_LE so we can do
+   * an XOR check later */
+  if (le) {
+    le = FLAG_LE;
+  }
+  
+  /* Different handling depending on alignment */
+  if ((pos & 0x1) == 0) {
+    /* Copy and recast value to byte buffer */
+    memcpy(bb, &v, 2);
+    
+    /* Map the last byte into the window, which also checks parameters
+     * and makes sure that the integer doesn't run beyond the end of the
+     * file */
+    mapByte(pv, pos + 1);
+    
+    /* Check that not read-only */
+    if (pv->flags & FLAG_RO) {
+      fault(__LINE__);
+    }
+    
+    /* Write the bytes, flipping if platform endianness and requested
+     * endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      (pv->pw)[pos - pv->wfirst] = bb[1];
+      (pv->pw)[pos - pv->wfirst + 1] = bb[0];
+    } else {
+      (pv->pw)[pos - pv->wfirst] = bb[0];
+      (pv->pw)[pos - pv->wfirst + 1] = bb[1];
+    }
+    
+    /* Set dirty and update timestamp flags */
+    pv->flags |= FLAG_DT;
+    pv->flags |= FLAG_UT;
+  
+  } else {
+    /* Unaligned, so copy and recast value into byte buffer */
+    memcpy(bb, &v, 2);
+    
+    /* Decompose call, flipping order of calls if platform endianness
+     * and requested endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      aksview_write8u(pv, pos, bb[1]);
+      aksview_write8u(pv, pos + 1, bb[0]);
+    } else {
+      aksview_write8u(pv, pos, bb[0]);
+      aksview_write8u(pv, pos + 1, bb[1]);
+    }
+  }
+}
+
+/*
+ * aksview_write16s function.
+ */
+void aksview_write16s(AKSVIEW *pv, int64_t pos, int le, int16_t v) {
+  uint8_t bb[2];
+  
+  /* Rough check of parameters */
+  if ((pos < 0) || (pos >= AKSVIEW_MAXLEN) || (pv == NULL)) {
+    fault(__LINE__);
+  }
+  
+  /* If le parameter is non-zero, replace it with FLAG_LE so we can do
+   * an XOR check later */
+  if (le) {
+    le = FLAG_LE;
+  }
+  
+  /* Different handling depending on alignment */
+  if ((pos & 0x1) == 0) {
+    /* Copy and recast value to byte buffer */
+    memcpy(bb, &v, 2);
+    
+    /* Map the last byte into the window, which also checks parameters
+     * and makes sure that the integer doesn't run beyond the end of the
+     * file */
+    mapByte(pv, pos + 1);
+    
+    /* Check that not read-only */
+    if (pv->flags & FLAG_RO) {
+      fault(__LINE__);
+    }
+    
+    /* Write the bytes, flipping if platform endianness and requested
+     * endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      (pv->pw)[pos - pv->wfirst] = bb[1];
+      (pv->pw)[pos - pv->wfirst + 1] = bb[0];
+    } else {
+      (pv->pw)[pos - pv->wfirst] = bb[0];
+      (pv->pw)[pos - pv->wfirst + 1] = bb[1];
+    }
+    
+    /* Set dirty and update timestamp flags */
+    pv->flags |= FLAG_DT;
+    pv->flags |= FLAG_UT;
+  
+  } else {
+    /* Unaligned, so copy and recast value into byte buffer */
+    memcpy(bb, &v, 2);
+    
+    /* Decompose call, flipping order of calls if platform endianness
+     * and requested endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      aksview_write8u(pv, pos, bb[1]);
+      aksview_write8u(pv, pos + 1, bb[0]);
+    } else {
+      aksview_write8u(pv, pos, bb[0]);
+      aksview_write8u(pv, pos + 1, bb[1]);
+    }
+  }
+}
+
+/*
+ * aksview_read32u function.
+ */
+uint32_t aksview_read32u(AKSVIEW *pv, int64_t pos, int le) {
+  uint8_t bb[4];
+  uint16_t bw[2];
+  uint32_t result = 0;
+  
+  /* Rough check of parameters */
+  if ((pos < 0) || (pos >= AKSVIEW_MAXLEN) || (pv == NULL)) {
+    fault(__LINE__);
+  }
+  
+  /* If le parameter is non-zero, replace it with FLAG_LE so we can do
+   * an XOR check later */
+  if (le) {
+    le = FLAG_LE;
+  }
+  
+  /* Different handling depending on alignment */
+  if ((pos & 0x3) == 0) {
+    /* Map the last byte into the window, which also checks parameters
+     * and makes sure that the integer doesn't run beyond the end of the
+     * file */
+    mapByte(pv, pos + 3);
+    
+    /* Read the bytes, flipping if platform endianness and requested
+     * endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      bb[3] = (pv->pw)[pos - pv->wfirst];
+      bb[2] = (pv->pw)[pos - pv->wfirst + 1];
+      bb[1] = (pv->pw)[pos - pv->wfirst + 2];
+      bb[0] = (pv->pw)[pos - pv->wfirst + 3];
+    } else {
+      bb[0] = (pv->pw)[pos - pv->wfirst];
+      bb[1] = (pv->pw)[pos - pv->wfirst + 1];
+      bb[2] = (pv->pw)[pos - pv->wfirst + 2];
+      bb[3] = (pv->pw)[pos - pv->wfirst + 3];
+    }
+    
+    /* Copy and recast */
+    memcpy(&result, bb, 4);
+  
+  } else {
+    /* Unaligned so decompose call, flipping order of results if
+     * platform endianness and requested endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      bw[1] = aksview_read16u(pv, pos, le);
+      bw[0] = aksview_read16u(pv, pos + 2, le);
+    } else {
+      bw[0] = aksview_read16u(pv, pos, le);
+      bw[1] = aksview_read16u(pv, pos + 2, le);
+    }
+    
+    /* Copy and recast */
+    memcpy(&result, bw, 4);
+  }
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * aksview_read32s function.
+ */
+int32_t aksview_read32s(AKSVIEW *pv, int64_t pos, int le) {
+  uint8_t bb[4];
+  uint16_t bw[2];
+  int32_t result = 0;
+  
+  /* Rough check of parameters */
+  if ((pos < 0) || (pos >= AKSVIEW_MAXLEN) || (pv == NULL)) {
+    fault(__LINE__);
+  }
+  
+  /* If le parameter is non-zero, replace it with FLAG_LE so we can do
+   * an XOR check later */
+  if (le) {
+    le = FLAG_LE;
+  }
+  
+  /* Different handling depending on alignment */
+  if ((pos & 0x3) == 0) {
+    /* Map the last byte into the window, which also checks parameters
+     * and makes sure that the integer doesn't run beyond the end of the
+     * file */
+    mapByte(pv, pos + 3);
+    
+    /* Read the bytes, flipping if platform endianness and requested
+     * endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      bb[3] = (pv->pw)[pos - pv->wfirst];
+      bb[2] = (pv->pw)[pos - pv->wfirst + 1];
+      bb[1] = (pv->pw)[pos - pv->wfirst + 2];
+      bb[0] = (pv->pw)[pos - pv->wfirst + 3];
+    } else {
+      bb[0] = (pv->pw)[pos - pv->wfirst];
+      bb[1] = (pv->pw)[pos - pv->wfirst + 1];
+      bb[2] = (pv->pw)[pos - pv->wfirst + 2];
+      bb[3] = (pv->pw)[pos - pv->wfirst + 3];
+    }
+    
+    /* Copy and recast */
+    memcpy(&result, bb, 4);
+  
+  } else {
+    /* Unaligned so decompose call, flipping order of results if
+     * platform endianness and requested endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      bw[1] = aksview_read16u(pv, pos, le);
+      bw[0] = aksview_read16u(pv, pos + 2, le);
+    } else {
+      bw[0] = aksview_read16u(pv, pos, le);
+      bw[1] = aksview_read16u(pv, pos + 2, le);
+    }
+    
+    /* Copy and recast */
+    memcpy(&result, bw, 4);
+  }
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * aksview_write32u function.
+ */
+void aksview_write32u(AKSVIEW *pv, int64_t pos, int le, uint32_t v) {
+  uint8_t bb[4];
+  uint16_t bw[2];
+  
+  /* Rough check of parameters */
+  if ((pos < 0) || (pos >= AKSVIEW_MAXLEN) || (pv == NULL)) {
+    fault(__LINE__);
+  }
+  
+  /* If le parameter is non-zero, replace it with FLAG_LE so we can do
+   * an XOR check later */
+  if (le) {
+    le = FLAG_LE;
+  }
+  
+  /* Different handling depending on alignment */
+  if ((pos & 0x3) == 0) {
+    /* Copy and recast */
+    memcpy(bb, &v, 4);
+    
+    /* Map the last byte into the window, which also checks parameters
+     * and makes sure that the integer doesn't run beyond the end of the
+     * file */
+    mapByte(pv, pos + 3);
+    
+    /* Check that not read-only */
+    if (pv->flags & FLAG_RO) {
+      fault(__LINE__);
+    }
+    
+    /* Write the bytes, flipping if platform endianness and requested
+     * endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      (pv->pw)[pos - pv->wfirst] = bb[3];
+      (pv->pw)[pos - pv->wfirst + 1] = bb[2];
+      (pv->pw)[pos - pv->wfirst + 2] = bb[1];
+      (pv->pw)[pos - pv->wfirst + 3] = bb[0];
+    } else {
+      (pv->pw)[pos - pv->wfirst] = bb[0];
+      (pv->pw)[pos - pv->wfirst + 1] = bb[1];
+      (pv->pw)[pos - pv->wfirst + 2] = bb[2];
+      (pv->pw)[pos - pv->wfirst + 3] = bb[3];
+    }
+    
+    /* Set dirty and update timestamp flags */
+    pv->flags |= FLAG_DT;
+    pv->flags |= FLAG_UT;
+  
+  } else {
+    /* Unaligned, so copy and recast value into word buffer */
+    memcpy(bw, &v, 4);
+    
+    /* Decompose call, flipping order of results if platform endianness
+     * and requested endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      aksview_write16u(pv, pos, le, bw[1]);
+      aksview_write16u(pv, pos + 2, le, bw[0]);
+    } else {
+      aksview_write16u(pv, pos, le, bw[0]);
+      aksview_write16u(pv, pos + 2, le, bw[1]);
+    }
+  }
+}
+
+/*
+ * aksview_write32s function.
+ */
+void aksview_write32s(AKSVIEW *pv, int64_t pos, int le, int32_t v) {
+  uint8_t bb[4];
+  uint16_t bw[2];
+  
+  /* Rough check of parameters */
+  if ((pos < 0) || (pos >= AKSVIEW_MAXLEN) || (pv == NULL)) {
+    fault(__LINE__);
+  }
+  
+  /* If le parameter is non-zero, replace it with FLAG_LE so we can do
+   * an XOR check later */
+  if (le) {
+    le = FLAG_LE;
+  }
+  
+  /* Different handling depending on alignment */
+  if ((pos & 0x3) == 0) {
+    /* Copy and recast */
+    memcpy(bb, &v, 4);
+    
+    /* Map the last byte into the window, which also checks parameters
+     * and makes sure that the integer doesn't run beyond the end of the
+     * file */
+    mapByte(pv, pos + 3);
+    
+    /* Check that not read-only */
+    if (pv->flags & FLAG_RO) {
+      fault(__LINE__);
+    }
+    
+    /* Write the bytes, flipping if platform endianness and requested
+     * endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      (pv->pw)[pos - pv->wfirst] = bb[3];
+      (pv->pw)[pos - pv->wfirst + 1] = bb[2];
+      (pv->pw)[pos - pv->wfirst + 2] = bb[1];
+      (pv->pw)[pos - pv->wfirst + 3] = bb[0];
+    } else {
+      (pv->pw)[pos - pv->wfirst] = bb[0];
+      (pv->pw)[pos - pv->wfirst + 1] = bb[1];
+      (pv->pw)[pos - pv->wfirst + 2] = bb[2];
+      (pv->pw)[pos - pv->wfirst + 3] = bb[3];
+    }
+    
+    /* Set dirty and update timestamp flags */
+    pv->flags |= FLAG_DT;
+    pv->flags |= FLAG_UT;
+  
+  } else {
+    /* Unaligned, so copy and recast value into word buffer */
+    memcpy(bw, &v, 4);
+    
+    /* Decompose call, flipping order of results if platform endianness
+     * and requested endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      aksview_write16u(pv, pos, le, bw[1]);
+      aksview_write16u(pv, pos + 2, le, bw[0]);
+    } else {
+      aksview_write16u(pv, pos, le, bw[0]);
+      aksview_write16u(pv, pos + 2, le, bw[1]);
+    }
+  }
+}
+
+/*
+ * aksview_read64u function.
+ */
+uint64_t aksview_read64u(AKSVIEW *pv, int64_t pos, int le) {
+  uint8_t bb[8];
+  uint32_t bw[2];
+  uint64_t result = 0;
+  
+  /* Rough check of parameters */
+  if ((pos < 0) || (pos >= AKSVIEW_MAXLEN) || (pv == NULL)) {
+    fault(__LINE__);
+  }
+  
+  /* If le parameter is non-zero, replace it with FLAG_LE so we can do
+   * an XOR check later */
+  if (le) {
+    le = FLAG_LE;
+  }
+  
+  /* Different handling depending on alignment */
+  if ((pos & 0x7) == 0) {
+    /* Map the last byte into the window, which also checks parameters
+     * and makes sure that the integer doesn't run beyond the end of the
+     * file */
+    mapByte(pv, pos + 7);
+    
+    /* Read the bytes, flipping if platform endianness and requested
+     * endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      bb[7] = (pv->pw)[pos - pv->wfirst];
+      bb[6] = (pv->pw)[pos - pv->wfirst + 1];
+      bb[5] = (pv->pw)[pos - pv->wfirst + 2];
+      bb[4] = (pv->pw)[pos - pv->wfirst + 3];
+      bb[3] = (pv->pw)[pos - pv->wfirst + 4];
+      bb[2] = (pv->pw)[pos - pv->wfirst + 5];
+      bb[1] = (pv->pw)[pos - pv->wfirst + 6];
+      bb[0] = (pv->pw)[pos - pv->wfirst + 7];
+    } else {
+      bb[0] = (pv->pw)[pos - pv->wfirst];
+      bb[1] = (pv->pw)[pos - pv->wfirst + 1];
+      bb[2] = (pv->pw)[pos - pv->wfirst + 2];
+      bb[3] = (pv->pw)[pos - pv->wfirst + 3];
+      bb[4] = (pv->pw)[pos - pv->wfirst + 4];
+      bb[5] = (pv->pw)[pos - pv->wfirst + 5];
+      bb[6] = (pv->pw)[pos - pv->wfirst + 6];
+      bb[7] = (pv->pw)[pos - pv->wfirst + 7];
+    }
+    
+    /* Copy and recast */
+    memcpy(&result, bb, 8);
+  
+  } else {
+    /* Unaligned so decompose call, flipping order of results if
+     * platform endianness and requested endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      bw[1] = aksview_read32u(pv, pos, le);
+      bw[0] = aksview_read32u(pv, pos + 4, le);
+    } else {
+      bw[0] = aksview_read32u(pv, pos, le);
+      bw[1] = aksview_read32u(pv, pos + 4, le);
+    }
+    
+    /* Copy and recast */
+    memcpy(&result, bw, 8);
+  }
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * aksview_read64s function.
+ */
+int64_t aksview_read64s(AKSVIEW *pv, int64_t pos, int le) {
+  uint8_t bb[8];
+  uint32_t bw[2];
+  int64_t result = 0;
+  
+  /* Rough check of parameters */
+  if ((pos < 0) || (pos >= AKSVIEW_MAXLEN) || (pv == NULL)) {
+    fault(__LINE__);
+  }
+  
+  /* If le parameter is non-zero, replace it with FLAG_LE so we can do
+   * an XOR check later */
+  if (le) {
+    le = FLAG_LE;
+  }
+  
+  /* Different handling depending on alignment */
+  if ((pos & 0x7) == 0) {
+    /* Map the last byte into the window, which also checks parameters
+     * and makes sure that the integer doesn't run beyond the end of the
+     * file */
+    mapByte(pv, pos + 7);
+    
+    /* Read the bytes, flipping if platform endianness and requested
+     * endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      bb[7] = (pv->pw)[pos - pv->wfirst];
+      bb[6] = (pv->pw)[pos - pv->wfirst + 1];
+      bb[5] = (pv->pw)[pos - pv->wfirst + 2];
+      bb[4] = (pv->pw)[pos - pv->wfirst + 3];
+      bb[3] = (pv->pw)[pos - pv->wfirst + 4];
+      bb[2] = (pv->pw)[pos - pv->wfirst + 5];
+      bb[1] = (pv->pw)[pos - pv->wfirst + 6];
+      bb[0] = (pv->pw)[pos - pv->wfirst + 7];
+    } else {
+      bb[0] = (pv->pw)[pos - pv->wfirst];
+      bb[1] = (pv->pw)[pos - pv->wfirst + 1];
+      bb[2] = (pv->pw)[pos - pv->wfirst + 2];
+      bb[3] = (pv->pw)[pos - pv->wfirst + 3];
+      bb[4] = (pv->pw)[pos - pv->wfirst + 4];
+      bb[5] = (pv->pw)[pos - pv->wfirst + 5];
+      bb[6] = (pv->pw)[pos - pv->wfirst + 6];
+      bb[7] = (pv->pw)[pos - pv->wfirst + 7];
+    }
+    
+    /* Copy and recast */
+    memcpy(&result, bb, 8);
+  
+  } else {
+    /* Unaligned so decompose call, flipping order of results if
+     * platform endianness and requested endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      bw[1] = aksview_read32u(pv, pos, le);
+      bw[0] = aksview_read32u(pv, pos + 4, le);
+    } else {
+      bw[0] = aksview_read32u(pv, pos, le);
+      bw[1] = aksview_read32u(pv, pos + 4, le);
+    }
+    
+    /* Copy and recast */
+    memcpy(&result, bw, 8);
+  }
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * aksview_write64u function.
+ */
+void aksview_write64u(AKSVIEW *pv, int64_t pos, int le, uint64_t v) {
+  uint8_t bb[8];
+  uint32_t bw[2];
+  
+  /* Rough check of parameters */
+  if ((pos < 0) || (pos >= AKSVIEW_MAXLEN) || (pv == NULL)) {
+    fault(__LINE__);
+  }
+  
+  /* If le parameter is non-zero, replace it with FLAG_LE so we can do
+   * an XOR check later */
+  if (le) {
+    le = FLAG_LE;
+  }
+  
+  /* Different handling depending on alignment */
+  if ((pos & 0x7) == 0) {
+    /* Copy and recast */
+    memcpy(bb, &v, 8);
+    
+    /* Map the last byte into the window, which also checks parameters
+     * and makes sure that the integer doesn't run beyond the end of the
+     * file */
+    mapByte(pv, pos + 7);
+    
+    /* Check that not read-only */
+    if (pv->flags & FLAG_RO) {
+      fault(__LINE__);
+    }
+    
+    /* Write the bytes, flipping if platform endianness and requested
+     * endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      (pv->pw)[pos - pv->wfirst] = bb[7];
+      (pv->pw)[pos - pv->wfirst + 1] = bb[6];
+      (pv->pw)[pos - pv->wfirst + 2] = bb[5];
+      (pv->pw)[pos - pv->wfirst + 3] = bb[4];
+      (pv->pw)[pos - pv->wfirst + 4] = bb[3];
+      (pv->pw)[pos - pv->wfirst + 5] = bb[2];
+      (pv->pw)[pos - pv->wfirst + 6] = bb[1];
+      (pv->pw)[pos - pv->wfirst + 7] = bb[0];
+    } else {
+      (pv->pw)[pos - pv->wfirst] = bb[0];
+      (pv->pw)[pos - pv->wfirst + 1] = bb[1];
+      (pv->pw)[pos - pv->wfirst + 2] = bb[2];
+      (pv->pw)[pos - pv->wfirst + 3] = bb[3];
+      (pv->pw)[pos - pv->wfirst + 4] = bb[4];
+      (pv->pw)[pos - pv->wfirst + 5] = bb[5];
+      (pv->pw)[pos - pv->wfirst + 6] = bb[6];
+      (pv->pw)[pos - pv->wfirst + 7] = bb[7];
+    }
+    
+    /* Set dirty and update timestamp flags */
+    pv->flags |= FLAG_DT;
+    pv->flags |= FLAG_UT;
+  
+  } else {
+    /* Unaligned, so copy and recast value into word buffer */
+    memcpy(bw, &v, 8);
+    
+    /* Decompose call, flipping order of results if platform endianness
+     * and requested endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      aksview_write32u(pv, pos, le, bw[1]);
+      aksview_write32u(pv, pos + 4, le, bw[0]);
+    } else {
+      aksview_write32u(pv, pos, le, bw[0]);
+      aksview_write32u(pv, pos + 4, le, bw[1]);
+    }
+  }
+}
+
+/*
+ * aksview_write64s function.
+ */
+void aksview_write64s(AKSVIEW *pv, int64_t pos, int le, int64_t v) {
+  uint8_t bb[8];
+  uint32_t bw[2];
+  
+  /* Rough check of parameters */
+  if ((pos < 0) || (pos >= AKSVIEW_MAXLEN) || (pv == NULL)) {
+    fault(__LINE__);
+  }
+  
+  /* If le parameter is non-zero, replace it with FLAG_LE so we can do
+   * an XOR check later */
+  if (le) {
+    le = FLAG_LE;
+  }
+  
+  /* Different handling depending on alignment */
+  if ((pos & 0x7) == 0) {
+    /* Copy and recast */
+    memcpy(bb, &v, 8);
+    
+    /* Map the last byte into the window, which also checks parameters
+     * and makes sure that the integer doesn't run beyond the end of the
+     * file */
+    mapByte(pv, pos + 7);
+    
+    /* Check that not read-only */
+    if (pv->flags & FLAG_RO) {
+      fault(__LINE__);
+    }
+    
+    /* Write the bytes, flipping if platform endianness and requested
+     * endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      (pv->pw)[pos - pv->wfirst] = bb[7];
+      (pv->pw)[pos - pv->wfirst + 1] = bb[6];
+      (pv->pw)[pos - pv->wfirst + 2] = bb[5];
+      (pv->pw)[pos - pv->wfirst + 3] = bb[4];
+      (pv->pw)[pos - pv->wfirst + 4] = bb[3];
+      (pv->pw)[pos - pv->wfirst + 5] = bb[2];
+      (pv->pw)[pos - pv->wfirst + 6] = bb[1];
+      (pv->pw)[pos - pv->wfirst + 7] = bb[0];
+    } else {
+      (pv->pw)[pos - pv->wfirst] = bb[0];
+      (pv->pw)[pos - pv->wfirst + 1] = bb[1];
+      (pv->pw)[pos - pv->wfirst + 2] = bb[2];
+      (pv->pw)[pos - pv->wfirst + 3] = bb[3];
+      (pv->pw)[pos - pv->wfirst + 4] = bb[4];
+      (pv->pw)[pos - pv->wfirst + 5] = bb[5];
+      (pv->pw)[pos - pv->wfirst + 6] = bb[6];
+      (pv->pw)[pos - pv->wfirst + 7] = bb[7];
+    }
+    
+    /* Set dirty and update timestamp flags */
+    pv->flags |= FLAG_DT;
+    pv->flags |= FLAG_UT;
+  
+  } else {
+    /* Unaligned, so copy and recast value into word buffer */
+    memcpy(bw, &v, 8);
+    
+    /* Decompose call, flipping order of results if platform endianness
+     * and requested endianness are different */
+    if ((le ^ pv->flags) & FLAG_LE) {
+      aksview_write32u(pv, pos, le, bw[1]);
+      aksview_write32u(pv, pos + 4, le, bw[0]);
+    } else {
+      aksview_write32u(pv, pos, le, bw[0]);
+      aksview_write32u(pv, pos + 4, le, bw[1]);
+    }
   }
 }
