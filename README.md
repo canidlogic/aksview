@@ -30,6 +30,31 @@ On Windows, by default the static library will be built in ANSI mode, but you ca
 
 __Caution:__ On Windows, make sure that the mode chosen for the client application matches the mode chosen for the AKSView static library.  That is, if the client application is built in ANSI mode the AKSView static library should also have been built in ANSI mode, and if the client application is built in Unicode mode the AKSView static library should also have been built in Unicode mode.  If the build modes do not match, errors may occur unpredictably when opening file paths because one is performing UTF-8 translation on the path while the other is not.  For Windows, you should probably have two AKSView static library builds, one for ANSI and the other for Unicode, and be sure that you link the correct one to your client application.
 
+## Fault and warn handling
+
+Two types of error conditions used throughout AKSView are _faults_ and _warns_.  Both conditions should never occur; their occurrence indicates that something is wrong with the internal program logic.  For example, passing a path to `aksview_create` that can't be opened is neither a fault nor a warn, because the user providing a path that can't be opened is a rather regular and expected occurrence.  However, passing a NULL path to `aksview_create` is a fault, because a well-written program should never do this.
+
+The boundary between what counts as a fault or a warn, versus what is a "regular and expected occurrence" is often rather blurry.  Providing too many different "regular and expected" error conditions makes it harder for clients to use AKSView, so generally faults or warns will be used unless it is really expected that an error could regularly occur in a well-written program.
+
+The difference between a fault and a warn is that there is no way for AKSView to proceed after encountering a fault, while it _is_ possible to proceed after encountering a warn.  Passing NULL as the file path to `aksview_create` is a fault, because there is no way for the function to complete without knowing the file path.  However, a failure to close a file handle during `aksview_close` is a warn, because this error can be ignored.
+
+You can set your own fault and warn handlers using the following function:
+
+    void aksview_onerror(
+        void (*fpFault)(int),
+        void (*fpWarn)(int)
+    );
+
+Both handler functions accept a single integer argument, which will be the line number within the `aksview.c` source file at which the fault or warn occurred.  The fault handler must not return or undefined behavior occurs.  The warn handler may return.
+
+If you pass NULL for one or both handler functions, a default handler function will be used instead.  Calling this function overwrites any fault or warn handlers that may be currently installed.
+
+The default fault handler which is installed initially and when NULL is specified as the argument simply prints `aksview fault line #` to standard error (with `#` replaced with the line number) and then calls `exit()` with `EXIT_FAILURE`
+
+The default warn handler which is installed initially and when NULL is specified as the argument simply prints `aksview warn line #` to standard error (with `#` replaced with the line number) and returns.
+
+__Caution:__ The `aksview_onerror` function is _not_ thread safe.  If you are going to call it, best to do it right away before starting multiple threads.
+
 ## Viewer objects
 
 AKSView uses `AKSVIEW *` pointers as handles.  You can create a handle to a new viewer object by using the following constructor:
