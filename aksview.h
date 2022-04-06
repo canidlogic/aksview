@@ -70,6 +70,30 @@ typedef struct AKSVIEW_TAG AKSVIEW;
 #define AKSVIEW_ERR_LENQUERY  (4)
 
 /*
+ * Set the fault and warn handlers.
+ * 
+ * Both functions take a single parameter that is the line number within
+ * the aksview.c source file.
+ * 
+ * The fault function must never return.  The warn function may return.
+ * 
+ * If you pass NULL for one or both parameters, the NULL handler will be
+ * replaced with a default handler.
+ * 
+ * The default handlers simply print a short message to stderr.  In
+ * addition, the fault handler then calls exit(EXIT_FAILURE).
+ * 
+ * CAUTION: This function is not thread-safe!
+ * 
+ * Parameters:
+ * 
+ *   fpFault - the fault handler to use, or NULL for default
+ * 
+ *   fpWarn - the warn handler to use, or NULL for default
+ */
+void aksview_onerror(void (*fpFault)(int), void (*fpWarn)(int));
+
+/*
  * Given an error code, return an error message for it.
  * 
  * If AKSVIEW_ERR_NONE is passed, "No error" is returned.  If an
