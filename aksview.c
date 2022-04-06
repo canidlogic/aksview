@@ -24,7 +24,9 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
+#include <utime.h>
 #endif
 
 /*
@@ -37,6 +39,8 @@
  */
 #define FLAG_RO (1)   /* Read-only */
 #define FLAG_LE (2)   /* Platform is little endian */
+#define FLAG_DT (4)   /* Dirty window */
+#define FLAG_UT (8)   /* Update timestamp on close */
 
 /*
  * (POSIX only) Read-write permissions for everyone.
@@ -156,8 +160,9 @@ struct AKSVIEW_TAG {
 static int isLESystem(void);
 static int32_t getPageSize(void);
 static int loadFileSize(AKSVIEW *pv);
-static void computeWindow(AKSVIEW *pv);
+static int computeWindow(AKSVIEW *pv);
 
+static void unmap(AKSVIEW *pv);
 static void unview(AKSVIEW *pv);
 static void mapByte(AKSVIEW *pv, int64_t b);
 
@@ -422,7 +427,37 @@ static int computeWindow(AKSVIEW *pv) {
 }
 
 /*
+ * Completely close any open file mapping.
+ * 
+ * On POSIX, this is equivalent to unview().  On Windows, this will
+ * first unview() and then close any open file mapping object (but leave
+ * the file handle open).
+ * 
+ * Parameters:
+ * 
+ *   pv - the viewer object
+ */
+static void unmap(AKSVIEW *pv) {
+  
+  /* Always begin by unviewing */
+  unview(pv);
+  
+  /* (Windows only) If there is a file mapping handle, close it */
+#ifdef AKS_WIN
+  if (pv->fh_map != NULL) {
+    if (!CloseHandle(pv->fh_map)) {
+      abort();
+    }
+    pv->fh_map = NULL;
+  }
+#endif
+}
+
+/*
  * If there is a mapped window, unmap it.
+ * 
+ * If there is currently something mapped, it will be flushed before
+ * being unmapped.
  * 
  * Parameters:
  * 
@@ -437,6 +472,9 @@ static void unview(AKSVIEW *pv) {
   
   /* Only proceed if a window is mapped */
   if (pv->pw != NULL) {
+  
+    /* Flush view */
+    aksview_flush(pv);
   
     /* Unmap the view */
 #ifdef AKS_WIN
@@ -892,4 +930,285 @@ AKSVIEW *aksview_create(const char *pPath, int mode, int *perr) {
   
   /* Return structure or NULL */
   return pv;
+}
+
+/*
+ * aksview_close function.
+ */
+void aksview_close(AKSVIEW *pv) {
+
+#ifdef AKS_POSIX
+  time_t t = 0;
+  struct utimbuf tb;
+#else
+  FILETIME ft;
+  SYSTEMTIME st;
+#endif
+
+  /* Initialize structures */
+#ifdef AKS_WIN
+  memset(&ft, 0, sizeof(FILETIME));
+  memset(&st, 0, sizeof(SYSTEMTIME));
+#else
+  memset(&tb, 0, sizeof(struct utimbuf));
+#endif
+
+  /* Only proceed if non-NULL value passed */
+  if (pv != NULL) {
+  
+    /* Completely unmap and view and file mapping object, which will
+     * also flush if necessary */
+    unmap(pv);
+    
+    /* If the update timestamp flag is set, update last-modified
+     * timestamp on file */
+    if (pv->flags & FLAG_UT) {
+      
+      /* First, we need to get the current time */
+#ifdef AKS_POSIX
+      t = time(NULL);
+      if (t < 0) {
+        abort();
+      }
+#else
+      GetSystemTime(&st);
+      if (!SystemTimeToFileTime(&st, &ft)) {
+        abort();
+      }
+#endif
+    
+      /* Second, update the timestamp on the file */
+#ifdef AKS_POSIX
+      tb.actime  = t;
+      tb.modtime = t;
+      if (utime(pv->pPathCopy, &tb)) {
+        abort();
+      }
+#else
+      if (!SetFileTime(pv->fh, NULL, &ft, &ft)) {
+        abort();
+      }
+#endif
+    }
+    
+    /* (POSIX only) Free the path copy */
+#ifdef AKS_POSIX
+    if (pv->pPathCopy != NULL) {
+      free(pv->pPathCopy);
+      pv->pPathCopy = NULL;
+    }
+#endif
+    
+    /* Close the file handle */
+#ifdef AKS_WIN
+    if (pv->fh != INVALID_HANDLE_VALUE) {
+      if (!CloseHandle(pv->fh)) {
+        abort();
+      }
+      pv->fh = INVALID_HANDLE_VALUE;
+    }
+#else
+    if (pv->fh != -1) {
+      if (close(pv->fh)) {
+        abort();
+      }
+      pv->fh = -1;
+    }
+#endif
+    
+    /* Release the structure */
+    free(pv);
+  }
+}
+
+/*
+ * aksview_writable function.
+ */
+int aksview_writable(AKSVIEW *pv) {
+  
+  int result = 0;
+  
+  /* Check parameter */
+  if (pv == NULL) {
+    abort();
+  }
+  
+  /* Query flags */
+  if (pv->flags & FLAG_RO) {
+    result = 0;
+  } else {
+    result = 1;
+  }
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * aksview_getlen function.
+ */
+int64_t aksview_getlen(AKSVIEW *pv) {
+  
+  /* Check parameter */
+  if (pv == NULL) {
+    abort();
+  }
+  
+  /* Return result */
+  return pv->flen;
+}
+
+/*
+ * aksview_setlen function.
+ */
+int aksview_setlen(AKSVIEW *pv, int64_t newlen) {
+  
+  int status = 1;
+#ifdef AKS_POSIX
+  uint8_t dummy = 0;
+#endif
+#ifdef AKS_WIN
+  DWORD dhi = 0;
+  DWORD dlo = 0;
+  LONG  lhi = 0;
+  LONG  llo = 0;
+#endif
+  
+  /* Check parameters and state */
+  if ((pv == NULL) || (newlen < 0) || (newlen > AKSVIEW_MAXLEN)) {
+    abort();
+  }
+  if (pv->flags & FLAG_RO) {
+    abort();
+  }
+  
+  /* Only proceed if new length is actually different */
+  if (newlen != pv->flen) {
+  
+    /* Begin by unmapping everything and flushing if necessary */
+    unmap(pv);
+    
+    /* Change length of file */
+#ifdef AKS_WIN
+    /* On Windows, begin by splitting the new file length into two
+     * LONG values */
+    dhi = (DWORD) (newlen >> 32);
+    dlo = (DWORD) (newlen & INT64_C(0xffffffff));
+    
+    memcpy(&lhi, &dhi, sizeof(LONG));
+    memcpy(&llo, &dlo, sizeof(LONG));
+    
+    /* Position file pointer at new length */
+    llo = SetFilePointer(pv->fh, llo, &lhi, FILE_BEGIN);
+    if (llo == INVALID_SET_FILE_POINTER) {
+      if (GetLastError() != NO_ERROR) {
+        status = 0;
+      }
+    }
+    
+    /* Resize file so current file pointer is new length */
+    if (status) {
+      if (!SetEndOfFile(pv->fh)) {
+        status = 0;
+      }
+    }
+#else
+    /* On POSIX, different handling depending on whether file is growing
+     * or shrinking */
+    if (newlen > pv->flen) {
+      /* File is growing, so begin by seeking to the last byte in the
+       * file after the enlargement */
+      if (lseek(pv->fh, (off_t) (newlen - 1), SEEK_SET) == -1) {
+        status = 0;
+      }
+      
+      /* Write a single byte at the new last byte of the file to enlarge
+       * the file */
+      if (status) {
+        if (write(pv->fh, &dummy, 1) != 1) {
+          status = 0;
+        }
+      }
+      
+    } else if (newlen < pv->flen) {
+      /* File is shrinking, so use truncation function */
+      if (ftruncate(pv->fh, (off_t) newlen)) {
+        status = 0;
+      }
+      
+    } else {
+      /* Shouldn't happen */
+      abort();
+    }
+#endif
+  
+    /* Only proceed if we managed to change the file size */
+    if (status) {
+      
+      /* Set the update timestamp flag */
+      pv->flags |= FLAG_UT;
+      
+      /* Update the length recorded in the structure */
+      pv->flen = newlen;
+      
+      /* Recompute the window size */
+      computeWindow(pv);
+    }
+  }
+  
+  /* Return status */
+  return status;
+}
+
+/*
+ * aksview_sethint function.
+ */
+void aksview_sethint(AKSVIEW *pv, int32_t wlen) {
+  
+  /* Check parameters */
+  if (pv == NULL) {
+    abort();
+  }
+  
+  /* Only proceed if new hint is actually different */
+  if (wlen != pv->hint) {
+    /* Write the new hint */
+    pv->hint = wlen;
+    
+    /* Recompute the window size with the new hint, and if the window
+     * size therefore changes, unmap any view that may be mapped */
+    if (computeWindow(pv)) {
+      unview(pv);
+    }
+  }
+}
+
+/*
+ * aksview_flush function.
+ */
+void aksview_flush(AKSVIEW *pv) {
+  
+  /* Check parameters */
+  if (pv == NULL) {
+    abort();
+  }
+  
+  /* Only proceed if the viewer object is has dirty flag set AND there
+   * is currently a mapped window */
+  if ((pv->flags & FLAG_DT) && (pv->pw != NULL)) {
+    
+    /* Flush any changes out to disk */
+#ifdef AKS_WIN
+    if (!FlushViewOfFile(pv->pw, 0)) {
+      abort();
+    }
+#else
+    if (msync(pv->pw, (size_t) (pv->wlast - pv->wfirst + 1), MS_SYNC)) {
+      abort();
+    }
+#endif
+
+    /* Invert the dirty flag to clear */
+    pv->flags ^= FLAG_DT;
+  }
 }
